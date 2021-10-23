@@ -4,17 +4,20 @@ module.exports = (sequelize) => {
 	sequelize.define('lessons', {
         id: {
             type: DataTypes.INTEGER,
+            primaryKey: true,
+			autoIncrement: true,
             allowNull: false
         },
-		lesson_id: {
-			type: DataTypes.INTEGER
+		date: {
+			type: DataTypes.DATE,
+            allowNull: false
 		},
-		student_id: {
+		title: {
 			type: DataTypes.STRING
 		},
-        visit: {
-            type: DataTypes.BOOLEAN,
-            defaultValue: false
+        status: {
+            type: DataTypes.INTEGER,
+            defaultValue: 0
         }
 	});
 }

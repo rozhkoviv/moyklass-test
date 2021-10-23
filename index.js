@@ -1,6 +1,7 @@
 const express = require('express');
 const sequelize = require('./db');
 const log4js = require('log4js');
+const { LessonsController } = require('./controller/lessons.controller');
 
 ////////////////// params 
 const HOST = process.env.HOST || "127.0.0.1"
@@ -25,6 +26,8 @@ async function assertDBConnection() {
 
 async function main() {
     await assertDBConnection();
+
+    new LessonsController(app);
 
     app.listen(PORT, HOST, () => {
         Logger.info(`Express server started on http://${HOST}:${PORT}`);
