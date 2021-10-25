@@ -36,8 +36,9 @@ module.exports.LessonsService = class LessonsService {
                         if(isNaN(studentsCount))
                             throw new Error(`'studentsCount' has wrong format. must be (number) or (number from),(number to)`);
                     })
-                }
-                throw new Error(`'studentsCount' has wrong format. must be (number) or (number from),(number to)`);
+                } else
+                    throw new Error(`'studentsCount' has wrong format. must be (number) or (number from),(number to)`);
+                break;
             case 'page':
                 if (isNaN(param) || param < 1)
                     throw new Error(`'page' has wrong format. must be (number) > 1`);
@@ -60,21 +61,39 @@ module.exports.LessonsService = class LessonsService {
 
         const {lessons, students, teachers} = sequelize.models;
 
-        const where_clause = {
-            
-        }
+        let date_clause = {};
 
         if(date !== undefined) {
             const dates = date.split(',');
             if(dates.length === 2) {
-                where_clause.date = {
-                    [Sequelize.Op.between]: dates
+                date_clause.date = {
+                    [Sequelize.Op.between]: dates.map(date => new Date(date))
                 }
             } else {
-                where_clause.date = dates[0];
+                date_clause.date = new Date(dates[0]);
             }
         }
 
+        let students_count_clause = {};
+
+        if(studentsCount !== undefined) {
+            const count = studentsCount.split(',');
+            if(count.length === 2) {
+                students_count_clause = sequelize.where(sequelize.literal('(SELECT COUNT("student_id") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id")'), {
+                    [Sequelize.Op.between]: count
+                })
+            } else {
+                students_count_clause = sequelize.where(sequelize.literal('(SELECT COUNT("student_id") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id")'), {
+                    [Sequelize.Op.eq]: count[0]
+                })
+            }
+        }
+
+        const where_clause = Sequelize.and(
+            students_count_clause,
+            date_clause
+        );
+        
         const teachers_where_clause = (teacherIds !== undefined)?{
             id: {
                 [Sequelize.Op.in]: teacherIds.split(',')
@@ -82,9 +101,11 @@ module.exports.LessonsService = class LessonsService {
         }:{};
 
         let lessons_table = await lessons.findAll({
-            attributes: Object.keys(lessons.rawAttributes).concat([
-                [sequelize.literal('(SELECT COUNT("visit") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id" AND "visit" = true)'), 'visitCount']
-            ]),
+            attributes: {
+                include: [
+                    [sequelize.literal('(SELECT COUNT("visit") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id" AND "visit" = true)'), 'visitCount']
+                ]
+            },
             where: where_clause,
             include: [
                 {
@@ -99,7 +120,6 @@ module.exports.LessonsService = class LessonsService {
             limit: lessonsPerPage
         });
 
-        console.log(lessons_table[0].students)
         return lessons_table.map(lesson => {
             return {
                 id: lesson.id,
