@@ -89,16 +89,14 @@ module.exports.LessonsService = class LessonsService {
             }
         }
 
+        const teachers_where_clause = (teacherIds !== undefined)?
+        sequelize.literal(`(select "lesson_teachers"."lesson_id" from "lesson_teachers" as "lesson_teachers" inner join "teachers" as "teacher" on "lesson_teachers"."teacher_id" = "teacher"."id" and "teacher"."id" in (${teacherIds}) where ("lessons"."id" = "lesson_teachers"."lesson_id") limit 1 ) is not null`):{};
+
         const where_clause = Sequelize.and(
             students_count_clause,
-            date_clause
+            date_clause,
+            teachers_where_clause
         );
-        
-        const teachers_where_clause = (teacherIds !== undefined)?{
-            id: {
-                [Sequelize.Op.in]: teacherIds.split(',')
-            }
-        }:{};
 
         let lessons_table = await lessons.findAll({
             attributes: {
@@ -112,8 +110,7 @@ module.exports.LessonsService = class LessonsService {
                     model: students
                 },
                 {
-                    model: teachers,
-                    where: teachers_where_clause
+                    model: teachers
                 }
             ],
             offset: lessonsPerPage * (page - 1),
