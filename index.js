@@ -1,37 +1,13 @@
-const express = require('express');
-const sequelize = require('./db');
 const log4js = require('log4js');
-const { LessonsController } = require('./controller/lessons.controller');
+const Logger = log4js.getLogger("main");
+Logger.level = (process.env.DEBUG)?"debug":"info";
 
-////////////////// params 
-const HOST = process.env.HOST || "127.0.0.1"
-const PORT = process.env.PORT || 8080;
-//////////////////
+const { assertDBConnection } = require('./db/index');
+const { serverStart } = require('./app');
 
-const Logger = log4js.getLogger();
-Logger.level = "info";
-
-const app = express();
-
-async function assertDBConnection() {
-    try {
-        await sequelize.authenticate();
-        Logger.info("Connected to db estabilished!");
-    } catch (err) {
-        Logger.error("Unable connect to the db");
-        Logger.error(err);
-        process.exit(1);
-    }
-}
-
-async function main() {
-    await assertDBConnection();
-
-    new LessonsController(app);
-
-    app.listen(PORT, HOST, () => {
-        Logger.info(`Express server started on http://${HOST}:${PORT}`);
-    })
+function main() {
+    assertDBConnection()
+        .then(serverStart);
 }
 
 main();

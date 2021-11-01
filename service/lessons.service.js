@@ -1,63 +1,28 @@
-const sequelize = require("../db");
+const { sequelize } = require("../db");
 const Sequelize = require('sequelize');
+const log4js = require('log4js');
+const { ValidatorService, ValidatorTypes } = require("./validator.service");
+
+const Logger = log4js.getLogger("LessonsService");
+Logger.level = (process.env.DEBUG)?"debug":"info";
 
 module.exports.LessonsService = class LessonsService {
 
-    paramValidator(param, type) {
-        if (param === undefined)
-            return;
-        switch(type) {
-            case 'status':
-                if (param !== '0' && param !== '1' )
-                    throw new Error(`'status' has wrong format. must be 1 or 0`);
-                break;
-            case 'date':
-                let dates = param.split(',');
-                if (dates.length <= 2) {
-                    dates.forEach(dateEntry => {
-                        const isValid = /\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])/.test(dateEntry);
-                        if (!isValid)
-                            throw new Error(`'date' has wrong format. must be 'YYYY-MM-DD' or 'YYYY-MM-DD,YYYY-MM-DD'`);
-                    })
-                    return;
-                }
-                throw new Error(`'date' has wrong format. must be 'YYYY-MM-DD' or 'YYYY-MM-DD,YYYY-MM-DD'`);
-            case 'teachers':
-                let teacherIds = param.split(',');
-                teacherIds.forEach(teacherId => {
-                    if (isNaN(teacherId))
-                        throw new Error(`'teacherIds' has wrong format. must be ID (number)`);
-                })
-                break;
-            case 'students':
-                let students = param.split(',');
-                if (students.length <= 2) {
-                    students.forEach(studentsCount => {
-                        if(isNaN(studentsCount))
-                            throw new Error(`'studentsCount' has wrong format. must be (number) or (number from),(number to)`);
-                    })
-                } else
-                    throw new Error(`'studentsCount' has wrong format. must be (number) or (number from),(number to)`);
-                break;
-            case 'page':
-                if (isNaN(param) || param < 1)
-                    throw new Error(`'page' has wrong format. must be (number) > 1`);
-                break;
-            case 'lessons':
-                if (isNaN(param) || param < 0)
-                    throw new Error(`'lessonsPerPage' has wrong format. must be (number) > 0`);
-                break;
-        }
+    constructor() {
+        this.validatorService = new ValidatorService();
     }
+   
+    maxLessonsCountOnCreate = 300;
+    maxDaysRangeOnCreate = 360;
 
     async getAllWithFilter({ date, status, teacherIds, studentsCount, page = 1, lessonsPerPage = 5 }) {
 
-        this.paramValidator(date, "date");
-        this.paramValidator(status, "status");
-        this.paramValidator(teacherIds, "teachers");
-        this.paramValidator(studentsCount, "students");
-        this.paramValidator(page, "page");
-        this.paramValidator(lessonsPerPage, "lessons");
+        this.validatorService.validate(date, "date", ValidatorTypes.rangeDates);
+        this.validatorService.validate(status, "status", ValidatorTypes.bool);
+        this.validatorService.validate(teacherIds, "teacherIds", ValidatorTypes.posNumberArray);
+        this.validatorService.validate(studentsCount, "studentsCount", ValidatorTypes.rangeNumbers);
+        this.validatorService.validate(page, "page", ValidatorTypes.number);
+        this.validatorService.validate(lessonsPerPage, "lessonsPerPage", ValidatorTypes.number);
 
         const {lessons, students, teachers} = sequelize.models;
 
@@ -78,15 +43,13 @@ module.exports.LessonsService = class LessonsService {
 
         if(studentsCount !== undefined) {
             const count = studentsCount.split(',');
-            if(count.length === 2) {
-                students_count_clause = sequelize.where(sequelize.literal('(SELECT COUNT("student_id") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id")'), {
+            students_count_clause = sequelize.where(sequelize.literal('(SELECT COUNT("student_id") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id")'),
+                (count.length === 2) ? {
                     [Sequelize.Op.between]: count
-                })
-            } else {
-                students_count_clause = sequelize.where(sequelize.literal('(SELECT COUNT("student_id") FROM "lesson_students" WHERE "lesson_id" = "lessons"."id")'), {
+                }: {
                     [Sequelize.Op.eq]: count[0]
-                })
-            }
+                }
+            )
         }
 
         const teachers_where_clause = (teacherIds !== undefined)?
@@ -130,4 +93,65 @@ module.exports.LessonsService = class LessonsService {
             }
         });
     }
-}
+
+    async createLessons({ teacherIds, title, days, firstDate, lessonsCount, lastDate }) {
+        
+        const useLessonsCount = (lessonsCount !== undefined);
+
+        this.validatorService.validate(teacherIds, 'teacherIds', ValidatorTypes.posNumberArray, true);
+        this.validatorService.validate(title, 'title', ValidatorTypes.string, true);
+        this.validatorService.validate(days, 'days', ValidatorTypes.dayOfWeekArray, true);
+        this.validatorService.validate(firstDate, 'firstDate', ValidatorTypes.date, true)
+        this.validatorService.validate(lessonsCount, 'lessonsCount', ValidatorTypes.number, useLessonsCount);
+        this.validatorService.validate(lastDate, 'lastDate', ValidatorTypes.date, !useLessonsCount)
+
+        const { lessons, teachers } = sequelize.models;
+
+        const transaction = await sequelize.transaction();
+
+        let newLessons = [];
+        
+        try {
+            const lessonTeachers = await teachers.findAll( { where: { id : { [Sequelize.Op.in]: teacherIds }}, transaction });
+
+            if (useLessonsCount) {
+                let createdLessonsCount = 0;
+                for (let date = new Date(firstDate); (createdLessonsCount < this.maxLessonsCountOnCreate && createdLessonsCount < lessonsCount); date.setDate(date.getDate() + 1))
+                {
+                    if (days.includes(date.getDay())) {
+                        createdLessonsCount++;
+                        newLessons.push(lessons.create({
+                            title,
+                            date
+                        }, { transaction }))
+                    }
+                }
+            } else {
+                const lastDateVal = new Date(lastDate);
+                let maxDate = new Date(firstDate);
+                maxDate.setDate(maxDate.getDate() + this.maxDaysRangeOnCreate);
+                for (let date = new Date(firstDate); (date < maxDate && date < lastDateVal); date.setDate(date.getDate() + 1)) {
+                    if (days.includes(date.getDay())) {
+                        newLessons.push(lessons.create({
+                            title,
+                            date
+                        }, { transaction }))
+                    }
+                }
+            }
+
+            newLessons = await Promise.all(newLessons);
+
+            await Promise.all(newLessons.map(lesson => lesson.setTeachers(lessonTeachers, { transaction })));
+
+            await transaction.rollback();
+
+            return await Promise.all(newLessons).then(lessons => lessons.map(lesson => lesson.id));
+
+        } catch (ex) {
+            await transaction.rollback();
+            Logger.error(ex);
+            throw ex;
+        }
+    }
+};

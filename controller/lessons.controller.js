@@ -1,18 +1,23 @@
 const { LessonsService } = require("../service/lessons.service");
+const express = require('express');
+const router = express.Router();
 
-module.exports.LessonsController = class LessonsController {
+const lessonsService = new LessonsService();
 
-    constructor(app) {
-        this.lessonsService = new LessonsService();
-
-        app.get('/', (req, res) => this.getAll(req, res))
+router.get('/', async (req, res) => {
+    try {
+        res.send( await lessonsService.getAllWithFilter(req.query) );
+    } catch (ex) {
+        res.status(400).send({error: ex.message});
     }
+});
 
-    async getAll(req, res) {
-        try {
-            res.send( await this.lessonsService.getAllWithFilter(req.query) );
-        } catch (ex) {
-            res.status(400).send({error: ex.message});
-        }
+router.post('/lessons', async (req, res) => {
+    try {
+        res.send( await lessonsService.createLessons(req.body) );
+    } catch (ex) {
+        res.status(400).send({ error: ex.message })
     }
-}
+});
+
+module.exports = router;
