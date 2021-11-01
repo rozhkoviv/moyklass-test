@@ -144,7 +144,7 @@ module.exports.LessonsService = class LessonsService {
 
             await Promise.all(newLessons.map(lesson => lesson.setTeachers(lessonTeachers, { transaction })));
 
-            await transaction.rollback();
+            await transaction.submit();
 
             return await Promise.all(newLessons).then(lessons => lessons.map(lesson => lesson.id));
 
